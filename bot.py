@@ -187,6 +187,15 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
+async def logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Cierra la sesión del bot en la API oficial."""
+    try:
+        # Esto llama a logout en la API oficial
+        result = await context.bot.log_out()
+        await update.message.reply_text(f"✅ Bot deslogueado: {result}")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
+
 # --- Función Principal ---
 def main():
     """Inicia el bot."""
@@ -222,6 +231,8 @@ def main():
     
     # Iniciar el bot
     application.run_polling()
+
+    application.add_handler(CommandHandler("logout", logout))
 
 if __name__ == "__main__":
     main()
