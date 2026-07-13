@@ -201,9 +201,9 @@ def main():
     """Inicia el bot."""
     # Crear la aplicación
     import os
-
+    
     # Obtener la URL del servidor local desde variable de entorno
-    LOCAL_API_URL = os.environ.get("LOCAL_API_URL", "https://api.telegram.org/bot")
+    LOCAL_API_URL = os.environ.get("LOCAL_API_URL", "https://api.telegram.org")
     
     application = Application.builder() \
         .token(TOKEN) \
