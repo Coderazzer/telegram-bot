@@ -22,9 +22,8 @@ if not TOKEN:
 # Obtener la URL del servidor local (con valor por defecto)
 LOCAL_API_URL = os.environ.get("LOCAL_API_URL", "https://api.telegram.org")
 
-# --- CORRECCIÓN: Normalizar la URL para el servidor local ---
+# Normalizar la URL para el servidor local
 if LOCAL_API_URL != "https://api.telegram.org":
-    # Asegurar que la URL termina con /bot
     base_url = LOCAL_API_URL.rstrip('/')
     if not base_url.endswith('/bot'):
         base_url = base_url + '/bot'
@@ -41,25 +40,36 @@ is_processing = False
 # --- Función para verificar el servidor local ---
 async def check_local_server(local_url: str) -> bool:
     """Verifica si el servidor local de la API de Telegram está activo y responde."""
-    # Limpiar la URL para health check
     base_url = local_url.rstrip('/')
-    health_url = f"{base_url}/health"
+    # Intentar con /health primero, si no, con /ping o /status
+    endpoints = ["/health", "/ping", "/status", "/"]
     
+    for endpoint in endpoints:
+        try:
+            health_url = f"{base_url}{endpoint}"
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(health_url)
+                if response.is_success or response.status_code in [404, 405]:
+                    # Si responde (incluso con 404), está "despierto"
+                    logger.info(f"✅ Servidor local responde en {health_url} (código {response.status_code})")
+                    return True
+        except Exception:
+            continue
+    
+    # Si no responde a ningún endpoint, probar con getMe sin token
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.get(health_url)
-            if response.is_success:
-                logger.info(f"✅ Servidor local verificado en {health_url}")
+        test_url = f"{base_url}/getMe"
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(test_url)
+            # Si responde, está activo (aunque devuelva 401 sin token)
+            if response.status_code in [200, 401]:
+                logger.info(f"✅ Servidor local responde en {test_url} (código {response.status_code})")
                 return True
-            else:
-                logger.warning(f"⚠️ Servidor local respondió con código {response.status_code}")
-                return False
-    except httpx.TimeoutException:
-        logger.warning(f"⏰ Timeout al conectar con servidor local en {health_url}")
-        return False
-    except Exception as e:
-        logger.warning(f"❌ No se pudo conectar al servidor local en {health_url}: {e}")
-        return False
+    except Exception:
+        pass
+    
+    logger.warning(f"⚠️ Servidor local no responde en {base_url}")
+    return False
 
 # --- Funciones de Limpieza de Texto ---
 def clean_filename(text: str, original_extension: str) -> str:
@@ -115,19 +125,18 @@ async def handle_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     new_filename = clean_filename(caption, original_extension)
 
-    # --- NUEVA COMPROBACIÓN: Asegurar que el servidor local está activo ---
+    # Verificar el servidor local
     if LOCAL_API_URL != "https://api.telegram.org":
         logger.info(f"Verificando servidor local en {LOCAL_API_URL}...")
-        await message.reply_text("⏳ Despertando servidor local... (puede tomar hasta 50 segundos)")
+        await message.reply_text("⏳ Despertando servidor local...")
         
         server_ready = await check_local_server(LOCAL_API_URL)
         if not server_ready:
             logger.warning("El servidor local no responde. Intentando de todas formas...")
-            await message.reply_text("⚠️ El servidor local no responde. El procesamiento podría fallar. Si falla, intenta de nuevo en unos segundos.")
+            await message.reply_text("⚠️ El servidor local no responde. El procesamiento podría fallar.")
         else:
             logger.info("✅ Servidor local verificado y activo.")
             await message.reply_text("✅ Servidor local activo. Procesando archivo...")
-    # --- FIN DE LA COMPROBACIÓN ---
 
     # Añadir el trabajo a la cola
     await processing_queue.put((file_obj, new_filename, update.effective_chat.id, message.message_id))
@@ -148,13 +157,17 @@ async def process_queue(context: ContextTypes.DEFAULT_TYPE):
         file_obj, new_filename, chat_id, reply_to_msg_id = await processing_queue.get()
 
         try:
-            file = await bot.get_file(file_obj.file_id)
+            # Obtener el archivo con timeout aumentado para archivos grandes
+            file = await bot.get_file(file_obj.file_id, read_timeout=120.0, write_timeout=120.0)
             
             await bot.send_document(
                 chat_id=chat_id,
                 document=file.file_id,
                 filename=new_filename,
-                reply_to_message_id=reply_to_msg_id
+                reply_to_message_id=reply_to_msg_id,
+                read_timeout=120.0,
+                write_timeout=120.0,
+                connect_timeout=60.0
             )
             await bot.send_message(
                 chat_id,
@@ -217,7 +230,6 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- Función Principal ---
 def main():
     """Inicia el bot."""
-    # Usar la URL base con /bot y pasar el token normalmente
     application = Application.builder() \
         .base_url(LOCAL_API_BASE) \
         .token(TOKEN) \
