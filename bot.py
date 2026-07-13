@@ -37,6 +37,36 @@ else:
 processing_queue = asyncio.Queue()
 is_processing = False
 
+# --- Función para descargar archivo desde cualquier fuente ---
+async def download_file(file_path: str, use_local: bool = True) -> bytes:
+    """Descarga el archivo desde el servidor local o la API oficial."""
+    if use_local and LOCAL_API_URL != "https://api.telegram.org":
+        # Construir URL local
+        local_base = LOCAL_API_URL.rstrip('/')
+        download_url = f"{local_base}/file/bot{TOKEN}/{file_path}"
+        logger.info(f"Intentando descargar desde servidor local: {download_url}")
+        try:
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                response = await client.get(download_url)
+                if response.status_code == 200:
+                    logger.info(f"✅ Descargado desde servidor local: {len(response.content)} bytes")
+                    return response.content
+                else:
+                    logger.warning(f"Servidor local devolvió {response.status_code}, intentando con API oficial...")
+        except Exception as e:
+            logger.warning(f"Error con servidor local: {e}, intentando con API oficial...")
+    
+    # Fallback: API oficial
+    download_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
+    logger.info(f"Descargando desde API oficial: {download_url}")
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        response = await client.get(download_url)
+        if response.status_code == 200:
+            logger.info(f"✅ Descargado desde API oficial: {len(response.content)} bytes")
+            return response.content
+        else:
+            raise Exception(f"No se pudo descargar el archivo: {response.status_code} - {response.text}")
+
 # --- Función para verificar el servidor local ---
 async def check_local_server(local_url: str) -> bool:
     """Verifica si el servidor local de la API de Telegram está activo y responde."""
@@ -121,7 +151,7 @@ async def handle_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     new_filename = clean_filename(caption, original_extension)
 
-    # Verificar el servidor local (solo si está configurado)
+    # Verificar el servidor local
     if LOCAL_API_URL != "https://api.telegram.org":
         logger.info(f"Verificando servidor local en {LOCAL_API_URL}...")
         await message.reply_text("⏳ Despertando servidor local...")
@@ -153,20 +183,27 @@ async def process_queue(context: ContextTypes.DEFAULT_TYPE):
         file_obj, new_filename, chat_id, reply_to_msg_id = await processing_queue.get()
 
         try:
-            # Obtener el archivo (solo para tener el file_id, sin descargar)
+            # 1. Obtener información del archivo (incluye file_path)
             file = await bot.get_file(file_obj.file_id, read_timeout=120.0, write_timeout=120.0)
-            
-            # Enviar como documento usando el file_id y forzando el nuevo nombre
-            # disable_content_type_detection=True evita que Telegram lo detecte como video
+            file_path = file.file_path  # Ruta relativa del archivo
+            logger.info(f"📥 Archivo a procesar: {new_filename}, ruta: {file_path}")
+
+            # 2. Descargar el archivo (intenta local, luego API oficial)
+            try:
+                file_content = await download_file(file_path, use_local=True)
+            except Exception as e:
+                logger.warning(f"Fallo la descarga: {e}. Intentando descargar con la API oficial...")
+                file_content = await download_file(file_path, use_local=False)
+
+            # 3. Enviar como DOCUMENTO usando los bytes (NO el file_id)
             await bot.send_document(
                 chat_id=chat_id,
-                document=file.file_id,               # Usar el file_id directamente
-                filename=new_filename,               # Nombre deseado
+                document=file_content,  # bytes del archivo
+                filename=new_filename,
                 reply_to_message_id=reply_to_msg_id,
-                disable_content_type_detection=True, # FORZAR DOCUMENTO
-                read_timeout=120.0,
-                write_timeout=120.0,
-                connect_timeout=60.0
+                read_timeout=300.0,
+                write_timeout=300.0,
+                connect_timeout=120.0
             )
             
             await bot.send_message(
