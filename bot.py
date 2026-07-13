@@ -37,13 +37,40 @@ else:
 processing_queue = asyncio.Queue()
 is_processing = False
 
-# --- Función para descargar archivo desde cualquier fuente ---
+# --- Función para extraer la ruta real del archivo ---
+def extract_file_path(raw_path: str) -> str:
+    """
+    Extrae la ruta real del archivo desde la respuesta de getFile.
+    Si raw_path es una URL completa, extrae la parte después de /file/bot<TOKEN>/.
+    """
+    # Si ya es una ruta relativa, devolverla tal cual
+    if not raw_path.startswith('http'):
+        return raw_path
+    
+    # Buscar el patrón /file/bot<TOKEN>/ en la URL
+    token_pattern = re.escape(TOKEN)
+    pattern = rf"/file/bot{token_pattern}/(.+)$"
+    match = re.search(pattern, raw_path)
+    if match:
+        return match.group(1)
+    
+    # Fallback: devolver la URL original (no debería pasar)
+    return raw_path
+
+# --- Función para descargar archivo ---
 async def download_file(file_path: str, use_local: bool = True) -> bytes:
-    """Descarga el archivo desde el servidor local o la API oficial."""
+    """
+    Descarga el archivo desde el servidor local o la API oficial.
+    file_path debe ser la ruta relativa (o extraída) del archivo.
+    """
+    # Extraer la ruta real
+    real_path = extract_file_path(file_path)
+    logger.info(f"Ruta extraída: {real_path}")
+
     if use_local and LOCAL_API_URL != "https://api.telegram.org":
-        # Construir URL local
+        # Construir URL local correcta
         local_base = LOCAL_API_URL.rstrip('/')
-        download_url = f"{local_base}/file/bot{TOKEN}/{file_path}"
+        download_url = f"{local_base}/file/bot{TOKEN}/{real_path}"
         logger.info(f"Intentando descargar desde servidor local: {download_url}")
         try:
             async with httpx.AsyncClient(timeout=300.0) as client:
@@ -57,7 +84,7 @@ async def download_file(file_path: str, use_local: bool = True) -> bytes:
             logger.warning(f"Error con servidor local: {e}, intentando con API oficial...")
     
     # Fallback: API oficial
-    download_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
+    download_url = f"https://api.telegram.org/file/bot{TOKEN}/{real_path}"
     logger.info(f"Descargando desde API oficial: {download_url}")
     async with httpx.AsyncClient(timeout=300.0) as client:
         response = await client.get(download_url)
@@ -185,20 +212,20 @@ async def process_queue(context: ContextTypes.DEFAULT_TYPE):
         try:
             # 1. Obtener información del archivo (incluye file_path)
             file = await bot.get_file(file_obj.file_id, read_timeout=120.0, write_timeout=120.0)
-            file_path = file.file_path  # Ruta relativa del archivo
-            logger.info(f"📥 Archivo a procesar: {new_filename}, ruta: {file_path}")
+            raw_path = file.file_path  # Puede ser URL completa o ruta relativa
+            logger.info(f"📥 Archivo a procesar: {new_filename}, ruta original: {raw_path}")
 
             # 2. Descargar el archivo (intenta local, luego API oficial)
             try:
-                file_content = await download_file(file_path, use_local=True)
+                file_content = await download_file(raw_path, use_local=True)
             except Exception as e:
-                logger.warning(f"Fallo la descarga: {e}. Intentando descargar con la API oficial...")
-                file_content = await download_file(file_path, use_local=False)
+                logger.warning(f"Fallo la descarga desde local: {e}. Intentando descargar con la API oficial...")
+                file_content = await download_file(raw_path, use_local=False)
 
-            # 3. Enviar como DOCUMENTO usando los bytes (NO el file_id)
+            # 3. Enviar como DOCUMENTO usando los bytes
             await bot.send_document(
                 chat_id=chat_id,
-                document=file_content,  # bytes del archivo
+                document=file_content,
                 filename=new_filename,
                 reply_to_message_id=reply_to_msg_id,
                 read_timeout=300.0,
