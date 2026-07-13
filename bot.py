@@ -191,7 +191,15 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     """Inicia el bot."""
     # Crear la aplicación
-    application = Application.builder().token(TOKEN).build()
+    import os
+
+    # Obtener la URL del servidor local desde variable de entorno
+    LOCAL_API_URL = os.environ.get("LOCAL_API_URL", "https://api.telegram.org/bot")
+    
+    application = Application.builder() \
+        .token(TOKEN) \
+        .base_url(LOCAL_API_URL) \
+        .build()
 
     # Manejadores de comandos
     application.add_handler(CommandHandler("start", start))
