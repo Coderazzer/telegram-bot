@@ -4,7 +4,7 @@ import re
 import logging
 import httpx
 from pathlib import Path
-from telegram import Update, Document, Video
+from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # --- Configuración de Logging ---
@@ -22,7 +22,7 @@ if not TOKEN:
 # Obtener la URL del servidor local (con valor por defecto)
 LOCAL_API_URL = os.environ.get("LOCAL_API_URL", "https://api.telegram.org")
 
-logger.info(f"Usando URL de API: {LOCAL_API_URL}")
+logger.info(f"URL de API configurada: {LOCAL_API_URL}")
 
 # Cola para procesar archivos secuencialmente
 processing_queue = asyncio.Queue()
@@ -31,22 +31,24 @@ is_processing = False
 # --- Función para verificar el servidor local ---
 async def check_local_server(local_url: str) -> bool:
     """Verifica si el servidor local de la API de Telegram está activo y responde."""
-    health_url = f"{local_url}/health" if not local_url.endswith("/") else f"{local_url}health"
+    # Limpiar la URL para health check
+    base_url = local_url.rstrip('/')
+    health_url = f"{base_url}/health"
+    
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.get(health_url)
-            # Si responde con un código 2xx, está "despierto"
             if response.is_success:
-                logger.info(f"Servidor local verificado en {health_url}")
+                logger.info(f"✅ Servidor local verificado en {health_url}")
                 return True
             else:
-                logger.warning(f"Servidor local respondió con código {response.status_code}")
+                logger.warning(f"⚠️ Servidor local respondió con código {response.status_code}")
                 return False
     except httpx.TimeoutException:
-        logger.warning(f"Timeout al conectar con servidor local en {health_url}")
+        logger.warning(f"⏰ Timeout al conectar con servidor local en {health_url}")
         return False
     except Exception as e:
-        logger.warning(f"No se pudo conectar al servidor local en {health_url}: {e}")
+        logger.warning(f"❌ No se pudo conectar al servidor local en {health_url}: {e}")
         return False
 
 # --- Funciones de Limpieza de Texto ---
@@ -113,7 +115,7 @@ async def handle_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.warning("El servidor local no responde. Intentando de todas formas...")
             await message.reply_text("⚠️ El servidor local no responde. El procesamiento podría fallar. Si falla, intenta de nuevo en unos segundos.")
         else:
-            logger.info("Servidor local verificado y activo.")
+            logger.info("✅ Servidor local verificado y activo.")
             await message.reply_text("✅ Servidor local activo. Procesando archivo...")
     # --- FIN DE LA COMPROBACIÓN ---
 
@@ -205,10 +207,29 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- Función Principal ---
 def main():
     """Inicia el bot."""
-    application = Application.builder() \
-        .token(TOKEN) \
-        .base_url(LOCAL_API_URL) \
-        .build()
+    global LOCAL_API_URL
+    
+    # Si estamos usando el servidor local, construimos la URL completa
+    if LOCAL_API_URL != "https://api.telegram.org":
+        # Asegurar que la URL termina con /bot
+        base_url = LOCAL_API_URL.rstrip('/')
+        if not base_url.endswith('/bot'):
+            base_url = base_url + '/bot'
+        
+        # Construir la URL completa con el token
+        full_api_url = f"{base_url}/{TOKEN}"
+        
+        logger.info(f"Usando servidor local con URL: {full_api_url}")
+        
+        application = Application.builder() \
+            .base_url(full_api_url) \
+            .build()
+    else:
+        # Usar la API oficial
+        logger.info("Usando API oficial de Telegram")
+        application = Application.builder() \
+            .token(TOKEN) \
+            .build()
 
     # Manejadores de comandos
     application.add_handler(CommandHandler("start", start))
@@ -225,7 +246,7 @@ def main():
         handle_forward
     ))
 
-    logger.info(f"Bot iniciado correctamente con API: {LOCAL_API_URL}")
+    logger.info("Bot iniciado correctamente")
     application.run_polling()
 
 if __name__ == "__main__":
