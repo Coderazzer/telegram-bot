@@ -2,6 +2,7 @@ import os
 import asyncio
 import re
 import logging
+import httpx
 from pathlib import Path
 from telegram import Update, Document, Video
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -26,6 +27,27 @@ logger.info(f"Usando URL de API: {LOCAL_API_URL}")
 # Cola para procesar archivos secuencialmente
 processing_queue = asyncio.Queue()
 is_processing = False
+
+# --- Función para verificar el servidor local ---
+async def check_local_server(local_url: str) -> bool:
+    """Verifica si el servidor local de la API de Telegram está activo y responde."""
+    health_url = f"{local_url}/health" if not local_url.endswith("/") else f"{local_url}health"
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(health_url)
+            # Si responde con un código 2xx, está "despierto"
+            if response.is_success:
+                logger.info(f"Servidor local verificado en {health_url}")
+                return True
+            else:
+                logger.warning(f"Servidor local respondió con código {response.status_code}")
+                return False
+    except httpx.TimeoutException:
+        logger.warning(f"Timeout al conectar con servidor local en {health_url}")
+        return False
+    except Exception as e:
+        logger.warning(f"No se pudo conectar al servidor local en {health_url}: {e}")
+        return False
 
 # --- Funciones de Limpieza de Texto ---
 def clean_filename(text: str, original_extension: str) -> str:
@@ -81,6 +103,21 @@ async def handle_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     new_filename = clean_filename(caption, original_extension)
 
+    # --- NUEVA COMPROBACIÓN: Asegurar que el servidor local está activo ---
+    if LOCAL_API_URL != "https://api.telegram.org":
+        logger.info(f"Verificando servidor local en {LOCAL_API_URL}...")
+        await message.reply_text("⏳ Despertando servidor local... (puede tomar hasta 50 segundos)")
+        
+        server_ready = await check_local_server(LOCAL_API_URL)
+        if not server_ready:
+            logger.warning("El servidor local no responde. Intentando de todas formas...")
+            await message.reply_text("⚠️ El servidor local no responde. El procesamiento podría fallar. Si falla, intenta de nuevo en unos segundos.")
+        else:
+            logger.info("Servidor local verificado y activo.")
+            await message.reply_text("✅ Servidor local activo. Procesando archivo...")
+    # --- FIN DE LA COMPROBACIÓN ---
+
+    # Añadir el trabajo a la cola
     await processing_queue.put((file_obj, new_filename, update.effective_chat.id, message.message_id))
 
     if not is_processing:
