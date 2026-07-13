@@ -154,27 +154,27 @@ async def process_queue(context: ContextTypes.DEFAULT_TYPE):
 
         try:
             # 1. Obtener el archivo
-            file = await bot.get_file(file_obj.file_id, read_timeout=120.0, write_timeout=120.0)
+            file = await bot.get_file(file_obj.file_id, read_timeout=300.0, write_timeout=300.0)
             
-            # 2. DESCARGAR EL ARCHIVO EN MEMORIA
-            logger.info(f"📥 Descargando archivo: {new_filename}")
+            # 2. DESCARGAR EL ARCHIVO COMPLETO EN MEMORIA
+            logger.info(f"📥 Descargando archivo: {new_filename} (tamaño: {file.file_size} bytes)")
             file_content = await file.download_as_bytearray()
             logger.info(f"✅ Archivo descargado: {len(file_content)} bytes")
             
             # 3. Enviar como DOCUMENTO usando los bytes (NO el file_id)
             await bot.send_document(
                 chat_id=chat_id,
-                document=file_content,  # ✅ Esto fuerza a que sea documento
+                document=file_content,  # ✅ Esto fuerza a que sea DOCUMENTO
                 filename=new_filename,
                 reply_to_message_id=reply_to_msg_id,
-                read_timeout=120.0,
-                write_timeout=120.0,
-                connect_timeout=60.0
+                read_timeout=300.0,
+                write_timeout=300.0,
+                connect_timeout=120.0
             )
             
             await bot.send_message(
                 chat_id,
-                f"✅ Archivo enviado correctamente como documento:\n`{new_filename}`",
+                f"✅ Archivo enviado correctamente como DOCUMENTO:\n`{new_filename}`",
                 parse_mode='Markdown'
             )
             logger.info(f"✅ Archivo procesado: {new_filename}")
@@ -196,7 +196,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📤 **Cómo usar:**\n"
         "1. Reenvía un archivo de video a este chat.\n"
         "2. Asegúrate de que el comentario tenga el nombre deseado.\n"
-        "3. El bot limpiará el nombre y te devolverá el archivo.\n\n"
+        "3. El bot limpiará el nombre y te devolverá el archivo como DOCUMENTO.\n\n"
         "📝 **Ejemplo de comentario:**\n"
         "`✅ Toumei na Yoru ni Kakeru Kimi to, Me ni Mienai Koi wo Shita.`\n"
         "`⚡️ Episodio 2 Sub Español.`\n"
