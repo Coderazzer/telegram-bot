@@ -22,7 +22,17 @@ if not TOKEN:
 # Obtener la URL del servidor local (con valor por defecto)
 LOCAL_API_URL = os.environ.get("LOCAL_API_URL", "https://api.telegram.org")
 
-logger.info(f"URL de API configurada: {LOCAL_API_URL}")
+# --- CORRECCIÓN: Normalizar la URL para el servidor local ---
+if LOCAL_API_URL != "https://api.telegram.org":
+    # Asegurar que la URL termina con /bot
+    base_url = LOCAL_API_URL.rstrip('/')
+    if not base_url.endswith('/bot'):
+        base_url = base_url + '/bot'
+    LOCAL_API_BASE = base_url
+    logger.info(f"Usando servidor local con base URL: {LOCAL_API_BASE}")
+else:
+    LOCAL_API_BASE = "https://api.telegram.org"
+    logger.info("Usando API oficial de Telegram")
 
 # Cola para procesar archivos secuencialmente
 processing_queue = asyncio.Queue()
@@ -207,29 +217,11 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- Función Principal ---
 def main():
     """Inicia el bot."""
-    global LOCAL_API_URL
-    
-    # Si estamos usando el servidor local, construimos la URL completa
-    if LOCAL_API_URL != "https://api.telegram.org":
-        # Asegurar que la URL termina con /bot
-        base_url = LOCAL_API_URL.rstrip('/')
-        if not base_url.endswith('/bot'):
-            base_url = base_url + '/bot'
-        
-        # Construir la URL completa con el token
-        full_api_url = f"{base_url}/{TOKEN}"
-        
-        logger.info(f"Usando servidor local con URL: {full_api_url}")
-        
-        application = Application.builder() \
-            .base_url(full_api_url) \
-            .build()
-    else:
-        # Usar la API oficial
-        logger.info("Usando API oficial de Telegram")
-        application = Application.builder() \
-            .token(TOKEN) \
-            .build()
+    # Usar la URL base con /bot y pasar el token normalmente
+    application = Application.builder() \
+        .base_url(LOCAL_API_BASE) \
+        .token(TOKEN) \
+        .build()
 
     # Manejadores de comandos
     application.add_handler(CommandHandler("start", start))
