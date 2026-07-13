@@ -153,14 +153,18 @@ async def process_queue(context: ContextTypes.DEFAULT_TYPE):
         file_obj, new_filename, chat_id, reply_to_msg_id = await processing_queue.get()
 
         try:
-            # Obtener el archivo (solo para tener el file_id)
+            # 1. Obtener el archivo
             file = await bot.get_file(file_obj.file_id, read_timeout=120.0, write_timeout=120.0)
             
-            # Enviar como documento con el nuevo nombre usando file_id
-            # Esto debería forzar el envío como documento
+            # 2. DESCARGAR EL ARCHIVO EN MEMORIA
+            logger.info(f"📥 Descargando archivo: {new_filename}")
+            file_content = await file.download_as_bytearray()
+            logger.info(f"✅ Archivo descargado: {len(file_content)} bytes")
+            
+            # 3. Enviar como DOCUMENTO usando los bytes (NO el file_id)
             await bot.send_document(
                 chat_id=chat_id,
-                document=file.file_id,
+                document=file_content,  # ✅ Esto fuerza a que sea documento
                 filename=new_filename,
                 reply_to_message_id=reply_to_msg_id,
                 read_timeout=120.0,
@@ -170,20 +174,20 @@ async def process_queue(context: ContextTypes.DEFAULT_TYPE):
             
             await bot.send_message(
                 chat_id,
-                f"✅ Archivo enviado correctamente como:\n`{new_filename}`",
+                f"✅ Archivo enviado correctamente como documento:\n`{new_filename}`",
                 parse_mode='Markdown'
             )
-            logger.info(f"Archivo procesado: {new_filename}")
+            logger.info(f"✅ Archivo procesado: {new_filename}")
 
         except Exception as e:
             error_msg = f"❌ Error al procesar el archivo: {str(e)}"
             await bot.send_message(chat_id, error_msg)
-            logger.error(f"Error procesando archivo: {e}")
+            logger.error(f"❌ Error procesando archivo: {e}")
 
         await asyncio.sleep(1)
 
     is_processing = False
-    logger.info("Cola de procesamiento vacía")
+    logger.info("📭 Cola de procesamiento vacía")
 
 # --- Comandos ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -249,8 +253,9 @@ def main():
         handle_forward
     ))
 
-    logger.info("Bot iniciado correctamente")
-    application.run_polling()
+    logger.info("🤖 Bot iniciado correctamente")
+    # ✅ drop_pending_updates=True para evitar conflictos con instancias anteriores
+    application.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
