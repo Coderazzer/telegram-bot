@@ -121,7 +121,7 @@ async def handle_forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     new_filename = clean_filename(caption, original_extension)
 
-    # Verificar el servidor local
+    # Verificar el servidor local (solo si está configurado)
     if LOCAL_API_URL != "https://api.telegram.org":
         logger.info(f"Verificando servidor local en {LOCAL_API_URL}...")
         await message.reply_text("⏳ Despertando servidor local...")
@@ -153,23 +153,20 @@ async def process_queue(context: ContextTypes.DEFAULT_TYPE):
         file_obj, new_filename, chat_id, reply_to_msg_id = await processing_queue.get()
 
         try:
-            # 1. Obtener el archivo
-            file = await bot.get_file(file_obj.file_id, read_timeout=300.0, write_timeout=300.0)
+            # Obtener el archivo (solo para tener el file_id, sin descargar)
+            file = await bot.get_file(file_obj.file_id, read_timeout=120.0, write_timeout=120.0)
             
-            # 2. DESCARGAR EL ARCHIVO COMPLETO EN MEMORIA
-            logger.info(f"📥 Descargando archivo: {new_filename} (tamaño: {file.file_size} bytes)")
-            file_content = await file.download_as_bytearray()
-            logger.info(f"✅ Archivo descargado: {len(file_content)} bytes")
-            
-            # 3. Enviar como DOCUMENTO usando los bytes (NO el file_id)
+            # Enviar como documento usando el file_id y forzando el nuevo nombre
+            # disable_content_type_detection=True evita que Telegram lo detecte como video
             await bot.send_document(
                 chat_id=chat_id,
-                document=file_content,  # ✅ Esto fuerza a que sea DOCUMENTO
-                filename=new_filename,
+                document=file.file_id,               # Usar el file_id directamente
+                filename=new_filename,               # Nombre deseado
                 reply_to_message_id=reply_to_msg_id,
-                read_timeout=300.0,
-                write_timeout=300.0,
-                connect_timeout=120.0
+                disable_content_type_detection=True, # FORZAR DOCUMENTO
+                read_timeout=120.0,
+                write_timeout=120.0,
+                connect_timeout=60.0
             )
             
             await bot.send_message(
@@ -254,7 +251,6 @@ def main():
     ))
 
     logger.info("🤖 Bot iniciado correctamente")
-    # ✅ drop_pending_updates=True para evitar conflictos con instancias anteriores
     application.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
