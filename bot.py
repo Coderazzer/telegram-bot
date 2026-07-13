@@ -41,7 +41,6 @@ is_processing = False
 async def check_local_server(local_url: str) -> bool:
     """Verifica si el servidor local de la API de Telegram está activo y responde."""
     base_url = local_url.rstrip('/')
-    # Intentar con /health primero, si no, con /ping o /status
     endpoints = ["/health", "/ping", "/status", "/"]
     
     for endpoint in endpoints:
@@ -50,18 +49,15 @@ async def check_local_server(local_url: str) -> bool:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(health_url)
                 if response.is_success or response.status_code in [404, 405]:
-                    # Si responde (incluso con 404), está "despierto"
                     logger.info(f"✅ Servidor local responde en {health_url} (código {response.status_code})")
                     return True
         except Exception:
             continue
     
-    # Si no responde a ningún endpoint, probar con getMe sin token
     try:
         test_url = f"{base_url}/getMe"
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(test_url)
-            # Si responde, está activo (aunque devuelva 401 sin token)
             if response.status_code in [200, 401]:
                 logger.info(f"✅ Servidor local responde en {test_url} (código {response.status_code})")
                 return True
@@ -160,6 +156,7 @@ async def process_queue(context: ContextTypes.DEFAULT_TYPE):
             # Obtener el archivo con timeout aumentado para archivos grandes
             file = await bot.get_file(file_obj.file_id, read_timeout=120.0, write_timeout=120.0)
             
+            # CORRECCIÓN: Forzar envío como documento
             await bot.send_document(
                 chat_id=chat_id,
                 document=file.file_id,
@@ -167,8 +164,10 @@ async def process_queue(context: ContextTypes.DEFAULT_TYPE):
                 reply_to_message_id=reply_to_msg_id,
                 read_timeout=120.0,
                 write_timeout=120.0,
-                connect_timeout=60.0
+                connect_timeout=60.0,
+                disable_content_type_detection=True  # <<< CLAVE: Fuerza a enviar como documento
             )
+            
             await bot.send_message(
                 chat_id,
                 f"✅ Archivo enviado correctamente como:\n`{new_filename}`",
