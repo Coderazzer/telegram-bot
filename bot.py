@@ -153,19 +153,23 @@ async def process_queue(context: ContextTypes.DEFAULT_TYPE):
         file_obj, new_filename, chat_id, reply_to_msg_id = await processing_queue.get()
 
         try:
-            # Obtener el archivo con timeout aumentado para archivos grandes
+            # Obtener el archivo
             file = await bot.get_file(file_obj.file_id, read_timeout=120.0, write_timeout=120.0)
             
-            # CORRECCIÓN: Forzar envío como documento
+            # DESCARGAR EL ARCHIVO EN MEMORIA
+            logger.info(f"Descargando archivo para renombrarlo: {new_filename}")
+            file_content = await file.download_as_bytearray()
+            logger.info(f"Archivo descargado: {len(file_content)} bytes")
+            
+            # Enviar como documento con el nuevo nombre (usando los bytes)
             await bot.send_document(
                 chat_id=chat_id,
-                document=file.file_id,
+                document=file_content,  # Enviar los bytes, no el file_id
                 filename=new_filename,
                 reply_to_message_id=reply_to_msg_id,
                 read_timeout=120.0,
                 write_timeout=120.0,
-                connect_timeout=60.0,
-                disable_content_type_detection=True  # <<< CLAVE: Fuerza a enviar como documento
+                connect_timeout=60.0
             )
             
             await bot.send_message(
