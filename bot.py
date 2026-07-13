@@ -213,10 +213,7 @@ def main():
     logger.info("Bot iniciado correctamente")
     
     # Iniciar el bot
-    application.run_polling(
-        allowed_updates=Update.ALL_TYPES,
-        drop_pending_updates=True
-    )
+    application.run_polling()
 
 if __name__ == "__main__":
     main()
